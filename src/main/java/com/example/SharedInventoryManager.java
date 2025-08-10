@@ -6,7 +6,6 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.command.CommandManager;
-import net.minecraft.util.Identifier;
 import net.minecraft.util.collection.DefaultedList;
 
 import org.slf4j.Logger;
@@ -28,12 +27,11 @@ public class SharedInventoryManager implements ModInitializer {
 	// It is considered best practice to use your mod id as the logger's name.
 	// That way, it's clear which mod wrote info, warnings, and errors.
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
-	public static final Identifier SYNC_INVENTORY_PACKET = Identifier.of(MOD_ID, "sync_inventory");
-	private static final ThreadLocal<Boolean> IS_SYNCING = ThreadLocal.withInitial(() -> false);
+	private static volatile boolean IS_SYNCING = false;
 
 	public static void joinSharedInventory(PlayerEntity player, String inventoryName) {
 		LOGGER.info("Player {} is joining shared inventory: {}", player.getName().getString(), inventoryName);
-		IS_SYNCING.set(true);
+		IS_SYNCING = true;
 		try {
 			// if there are no players so far, copy their inventory to the shared inventory
 			PlayerInventory playerInventory = player.getInventory();
@@ -50,7 +48,6 @@ public class SharedInventoryManager implements ModInitializer {
 				for (int i = 0; i < inventory.size(); i++) {
 					playerInventory.setStack(i, inventory.get(i).copy());
 				}
-				playerInventory.markDirty();
 				player.sendAbilitiesUpdate();
 			}
 
@@ -62,19 +59,19 @@ public class SharedInventoryManager implements ModInitializer {
 				playerUUIDtoSharedInventoryName.put(playerUUID, inventoryName);
 			}
 		} finally {
-			IS_SYNCING.set(false);
+			IS_SYNCING = false;
 		}
 	}
 
 	// Sync the entire inventory for a player to the shared inventory and all group
 	// members
 	public static void syncEntireInventory(PlayerEntity player) {
-		if (player.getWorld().isClient() || IS_SYNCING.get()) {
+		if (player.getWorld().isClient() || IS_SYNCING) {
 			return;
 		}
 		String inventoryId = playerUUIDtoSharedInventoryName.get(player.getUuidAsString());
 		if (inventoryId != null && sharedInventories.containsKey(inventoryId)) {
-			IS_SYNCING.set(true);
+			IS_SYNCING = true;
 			try {
 				PlayerInventory playerInventory = player.getInventory();
 				DefaultedList<ItemStack> shared = sharedInventories.get(inventoryId);
@@ -83,7 +80,7 @@ public class SharedInventoryManager implements ModInitializer {
 				}
 				syncToAllPlayersInGroup(player, inventoryId);
 			} finally {
-				IS_SYNCING.set(false);
+				IS_SYNCING = false;
 			}
 		}
 	}
@@ -110,8 +107,8 @@ public class SharedInventoryManager implements ModInitializer {
 				for (int i = 0; i < Math.min(stacksToSend.size(), otherPlayerInventory.size()); i++) {
 					otherPlayerInventory.setStack(i, stacksToSend.get(i).copy());
 				}
-				otherPlayerInventory.markDirty();
-				// Server-side inventory changes automatically sync to client
+				// Server-side inventory changes automatically sync to client so we don't need
+				// to mark dirty
 			}
 		}
 	}
