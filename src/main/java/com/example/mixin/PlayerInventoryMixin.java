@@ -18,6 +18,9 @@ public class PlayerInventoryMixin {
 
 	@Inject(at = @At("TAIL"), method = "setStack")
 	private void onSetStack(int slot, ItemStack stack, CallbackInfo info) {
+		if (player.getWorld().isClient()) {
+			return;
+		}
 		SharedInventoryManager.syncInventoryChange(player, slot, stack);
 	}
 }

@@ -16,10 +16,10 @@ public record SyncInventoryPayload(List<ItemStack> stacks) implements CustomPayl
     public static final PacketCodec<RegistryByteBuf, SyncInventoryPayload> CODEC = new PacketCodec<>() {
         @Override
         public void encode(RegistryByteBuf buf, SyncInventoryPayload payload) {
-            List<ItemStack> list = payload.stacks();
+            var list = payload.stacks();
             buf.writeVarInt(list.size());
             for (ItemStack stack : list) {
-                ItemStack.PACKET_CODEC.encode(buf, stack);
+                ItemStack.OPTIONAL_PACKET_CODEC.encode(buf, stack);
             }
         }
 
@@ -28,7 +28,7 @@ public record SyncInventoryPayload(List<ItemStack> stacks) implements CustomPayl
             int size = buf.readVarInt();
             List<ItemStack> list = new ArrayList<>(size);
             for (int i = 0; i < size; i++) {
-                list.add(ItemStack.PACKET_CODEC.decode(buf));
+                list.add(ItemStack.OPTIONAL_PACKET_CODEC.decode(buf));
             }
             return new SyncInventoryPayload(list);
         }

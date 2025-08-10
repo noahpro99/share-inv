@@ -2,13 +2,10 @@ package com.example;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
-import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
-import net.minecraft.network.PacketByteBuf;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.Identifier;
@@ -19,6 +16,7 @@ import org.slf4j.LoggerFactory;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -33,50 +31,59 @@ public class SharedInventoryManager implements ModInitializer {
 	// That way, it's clear which mod wrote info, warnings, and errors.
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 	public static final Identifier SYNC_INVENTORY_PACKET = Identifier.of(MOD_ID, "sync_inventory");
+	private static final ThreadLocal<Boolean> IS_SYNCING = ThreadLocal.withInitial(() -> false);
 
 	public static void joinSharedInventory(PlayerEntity player, String inventoryName) {
 		LOGGER.info("Player {} is joining shared inventory: {}", player.getName().getString(), inventoryName);
-		// if there are no players so far, copy their inventory to the shared inventory
-		PlayerInventory playerInventory = player.getInventory();
-		if (!sharedInventories.containsKey(inventoryName)) {
-			sharedInventories.put(inventoryName, DefaultedList.ofSize(playerInventory.size(), ItemStack.EMPTY));
-			DefaultedList<ItemStack> inventory = sharedInventories.get(inventoryName);
-			for (int i = 0; i < playerInventory.size(); i++) {
-				inventory.set(i, playerInventory.getStack(i));
+		IS_SYNCING.set(true);
+		try {
+			// if there are no players so far, copy their inventory to the shared inventory
+			PlayerInventory playerInventory = player.getInventory();
+			if (!sharedInventories.containsKey(inventoryName)) {
+				sharedInventories.put(inventoryName, DefaultedList.ofSize(playerInventory.size(), ItemStack.EMPTY));
+				DefaultedList<ItemStack> inventory = sharedInventories.get(inventoryName);
+				for (int i = 0; i < playerInventory.size(); i++) {
+					inventory.set(i, playerInventory.getStack(i).copy());
+				}
+			} else {
+				// if the shared inventory already exists, replace the player's inventory with
+				// the shared one
+				DefaultedList<ItemStack> inventory = sharedInventories.get(inventoryName);
+				for (int i = 0; i < inventory.size(); i++) {
+					playerInventory.setStack(i, inventory.get(i).copy());
+				}
+				playerInventory.markDirty();
+				player.sendAbilitiesUpdate();
 			}
-		} else {
-			// if the shared inventory already exists, replace the player's inventory with
-			// the shared one
-			DefaultedList<ItemStack> inventory = sharedInventories.get(inventoryName);
-			for (int i = 0; i < inventory.size(); i++) {
-				playerInventory.setStack(i, inventory.get(i));
-			}
-			playerInventory.markDirty();
-			player.sendAbilitiesUpdate();
-		}
 
-		// add the player to the shared inventory
-		String playerUUID = player.getUuidAsString();
-		if (!playerUUIDtoSharedInventoryName.containsKey(playerUUID)) {
-			playerUUIDtoSharedInventoryName.put(playerUUID, inventoryName);
-		} else {
-			// if the player is already in a shared inventory, remove them from that one
-			String oldInventoryName = playerUUIDtoSharedInventoryName.get(playerUUID);
-			if (!oldInventoryName.equals(inventoryName)) {
-				sharedInventories.get(oldInventoryName).set(playerInventory.size(), ItemStack.EMPTY);
+			// add the player to the shared inventory
+			String playerUUID = player.getUuidAsString();
+			if (!playerUUIDtoSharedInventoryName.containsKey(playerUUID)) {
+				playerUUIDtoSharedInventoryName.put(playerUUID, inventoryName);
+			} else {
+				playerUUIDtoSharedInventoryName.put(playerUUID, inventoryName);
 			}
-			playerUUIDtoSharedInventoryName.put(playerUUID, inventoryName);
+		} finally {
+			IS_SYNCING.set(false);
 		}
 	}
 
 	public static void syncInventoryChange(PlayerEntity player, int slot, ItemStack stack) {
+		if (player.getWorld().isClient() || IS_SYNCING.get()) {
+			return;
+		}
 		LOGGER.info("Syncing inventory change for player {}: slot {}, stack {}", player.getName().getString(), slot,
 				stack);
 		String inventoryId = playerUUIDtoSharedInventoryName.get(player.getUuidAsString());
 		if (inventoryId != null && sharedInventories.containsKey(inventoryId)) {
-			sharedInventories.get(inventoryId).set(slot, stack);
-			// Notify the player that their inventory has been updated
-			syncToAllPlayersInGroup(player, inventoryId);
+			IS_SYNCING.set(true);
+			try {
+				sharedInventories.get(inventoryId).set(slot, stack.copy());
+				// Notify the player that their inventory has been updated
+				syncToAllPlayersInGroup(player, inventoryId);
+			} finally {
+				IS_SYNCING.set(false);
+			}
 		}
 	}
 
@@ -90,20 +97,23 @@ public class SharedInventoryManager implements ModInitializer {
 			return;
 		}
 
-		PacketByteBuf buf = PacketByteBufs.create();
-		buf.writeInt(sharedInventory.size());
-		for (ItemStack stack : sharedInventory) {
-			buf.writeNbt(stack.encode(player.getRegistryManager()));
-		}
-
+		var stacksToSend = new ArrayList<ItemStack>(sharedInventory);
 		for (PlayerEntity otherPlayer : player.getWorld().getPlayers()) {
 			String otherPlayerInventoryId = playerUUIDtoSharedInventoryName.get(otherPlayer.getUuidAsString());
 			if (otherPlayer != player
 					&& otherPlayerInventoryId != null
 					&& otherPlayerInventoryId.equals(inventoryId)) {
 				LOGGER.info("Sending inventory update to player {}", otherPlayer.getName().getString());
+				// update the other player's inventory server-side
+
+				PlayerInventory otherPlayerInventory = otherPlayer.getInventory();
+				for (int i = 0; i < Math.min(stacksToSend.size(), otherPlayerInventory.size()); i++) {
+					otherPlayerInventory.setStack(i, stacksToSend.get(i).copy());
+				}
+				otherPlayerInventory.markDirty();
+
 				// Send the packet to the other player
-				ServerPlayNetworking.send((ServerPlayerEntity) otherPlayer, new SyncInventoryPayload(sharedInventory));
+				ServerPlayNetworking.send((ServerPlayerEntity) otherPlayer, new SyncInventoryPayload(stacksToSend));
 			}
 		}
 	}
