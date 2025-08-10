@@ -2,10 +2,16 @@ package com.example;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.network.PacketByteBuf;
 import net.minecraft.server.command.CommandManager;
+import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.collection.DefaultedList;
 
 import org.slf4j.Logger;
@@ -26,6 +32,7 @@ public class SharedInventoryManager implements ModInitializer {
 	// It is considered best practice to use your mod id as the logger's name.
 	// That way, it's clear which mod wrote info, warnings, and errors.
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+	public static final Identifier SYNC_INVENTORY_PACKET = Identifier.of(MOD_ID, "sync_inventory");
 
 	public static void joinSharedInventory(PlayerEntity player, String inventoryName) {
 		LOGGER.info("Player {} is joining shared inventory: {}", player.getName().getString(), inventoryName);
@@ -76,15 +83,27 @@ public class SharedInventoryManager implements ModInitializer {
 	public static void syncToAllPlayersInGroup(PlayerEntity player, String inventoryId) {
 		LOGGER.info("Syncing inventory {} to all players in the group for player {}", inventoryId,
 				player.getName().getString());
-		// Notify all players in the same group about the inventory change
+		DefaultedList<ItemStack> sharedInventory = sharedInventories.get(inventoryId);
+
+		if (sharedInventory == null) {
+			LOGGER.warn("Shared inventory {} not found for player {}", inventoryId, player.getName().getString());
+			return;
+		}
+
+		PacketByteBuf buf = PacketByteBufs.create();
+		buf.writeInt(sharedInventory.size());
+		for (ItemStack stack : sharedInventory) {
+			buf.writeNbt(stack.encode(player.getRegistryManager()));
+		}
+
 		for (PlayerEntity otherPlayer : player.getWorld().getPlayers()) {
 			String otherPlayerInventoryId = playerUUIDtoSharedInventoryName.get(otherPlayer.getUuidAsString());
 			if (otherPlayer != player
 					&& otherPlayerInventoryId != null
 					&& otherPlayerInventoryId.equals(inventoryId)) {
-				// Send the updated inventory to the other player
-				LOGGER.info("would have sent inventory update to {}", otherPlayer.getName().getString());
-				// otherPlayer.sendInventoryUpdate(sharedInventories.get(inventoryId));
+				LOGGER.info("Sending inventory update to player {}", otherPlayer.getName().getString());
+				// Send the packet to the other player
+				ServerPlayNetworking.send((ServerPlayerEntity) otherPlayer, new SyncInventoryPayload(sharedInventory));
 			}
 		}
 	}

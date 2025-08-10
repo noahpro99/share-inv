@@ -18,7 +18,7 @@
 			"com.example.SharedInventoryManager"
 		],
 		"client": [
-			"com.example.ExampleModClient"
+			"com.example.SharedInventoryClient"
 		]
 	},
 	"mixins": [
