@@ -12,21 +12,14 @@
 	},
 	"license": "MIT",
 	"icon": "assets/share-inv/icon.png",
-	"environment": "*",
+	"environment": "server",
 	"entrypoints": {
 		"main": [
 			"com.example.SharedInventoryManager"
-		],
-		"client": [
-			"com.example.SharedInventoryClient"
 		]
 	},
 	"mixins": [
-		"share-inv.mixins.json",
-		{
-			"config": "share-inv.client.mixins.json",
-			"environment": "client"
-		}
+		"share-inv.mixins.json"
 	],
 	"depends": {
 		"fabricloader": ">=0.16.14",

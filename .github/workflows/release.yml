@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Build with Gradle
+        run: ./gradlew build
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Share Inventory v${{ steps.get_version.outputs.VERSION }}
+          body: |
+            ## Share Inventory v${{ steps.get_version.outputs.VERSION }}
+
+            A Minecraft Fabric mod that allows players to share inventories with each other in real-time.
+
+            ### Installation
+            1. Download the jar file below
+            2. Place it in your server's `mods` folder
+            3. Restart your server
+
+            ### Requirements
+            - Minecraft 1.21
+            - Fabric Loader 0.16.14+
+            - Fabric API
+
+            ### Usage
+            Use `/joinSharedInventory <inventoryName>` to join or create a shared inventory group.
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./build/libs/share-inv-${{ steps.get_version.outputs.VERSION }}.jar
+          asset_name: share-inv-${{ steps.get_version.outputs.VERSION }}.jar
+          asset_content_type: application/java-archive
+
+      - name: Upload Sources Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./build/libs/share-inv-${{ steps.get_version.outputs.VERSION }}-sources.jar
+          asset_name: share-inv-${{ steps.get_version.outputs.VERSION }}-sources.jar
+          asset_content_type: application/java-archive
