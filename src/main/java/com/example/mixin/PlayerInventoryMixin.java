@@ -8,6 +8,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import com.example.SharedInventoryManager;
 
@@ -26,14 +27,29 @@ public class PlayerInventoryMixin {
 		SharedInventoryManager.syncEntireInventory(player);
 	}
 
-	// Sync when items are dropped with Q (offerOrDrop handles Q drops) -
-	// offerOrDrop is void in 1.21
-	@Inject(at = @At("TAIL"), method = "offerOrDrop")
-	private void onOfferOrDrop(ItemStack stack, CallbackInfo info) {
-		if (player.getWorld().isClient()) {
-			return;
+	// Sync when items are offered to inventory (another pickup method)
+	@Inject(at = @At("TAIL"), method = "offer")
+	private void onOffer(ItemStack stack, boolean notifiesClient, CallbackInfo info) {
+		if (!this.player.getWorld().isClient()) {
+			SharedInventoryManager.syncEntireInventory(this.player);
 		}
-		// Sync the entire inventory after dropping items
-		SharedInventoryManager.syncEntireInventory(player);
+	}
+
+	// Hook into insertStack to catch item pickups
+	@Inject(at = @At("RETURN"), method = "insertStack(Lnet/minecraft/item/ItemStack;)Z")
+	private void onInsertStack(ItemStack stack, CallbackInfoReturnable<Boolean> cir) {
+		// Only sync if the item was actually inserted (return value is true)
+		if (cir.getReturnValue() && !this.player.getWorld().isClient()) {
+			SharedInventoryManager.syncEntireInventory(this.player);
+		}
+	}
+
+	// Sync when player drops items
+	@Inject(at = @At("RETURN"), method = "dropSelectedItem")
+	private void onDropSelectedItem(boolean entireStack, CallbackInfoReturnable<ItemStack> cir) {
+		if (!this.player.getWorld().isClient() && !cir.getReturnValue().isEmpty()) {
+			// Only sync if something was actually dropped
+			SharedInventoryManager.syncEntireInventory(this.player);
+		}
 	}
 }

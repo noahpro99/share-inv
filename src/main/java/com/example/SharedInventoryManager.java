@@ -107,6 +107,7 @@ public class SharedInventoryManager implements ModInitializer {
 				for (int i = 0; i < Math.min(stacksToSend.size(), otherPlayerInventory.size()); i++) {
 					otherPlayerInventory.setStack(i, stacksToSend.get(i).copy());
 				}
+				otherPlayer.sendAbilitiesUpdate();
 				// Server-side inventory changes automatically sync to client so we don't need
 				// to mark dirty
 			}
