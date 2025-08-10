@@ -2,12 +2,10 @@ package com.example;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.command.CommandManager;
-import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.collection.DefaultedList;
 
@@ -68,18 +66,21 @@ public class SharedInventoryManager implements ModInitializer {
 		}
 	}
 
-	public static void syncInventoryChange(PlayerEntity player, int slot, ItemStack stack) {
+	// Sync the entire inventory for a player to the shared inventory and all group
+	// members
+	public static void syncEntireInventory(PlayerEntity player) {
 		if (player.getWorld().isClient() || IS_SYNCING.get()) {
 			return;
 		}
-		LOGGER.info("Syncing inventory change for player {}: slot {}, stack {}", player.getName().getString(), slot,
-				stack);
 		String inventoryId = playerUUIDtoSharedInventoryName.get(player.getUuidAsString());
 		if (inventoryId != null && sharedInventories.containsKey(inventoryId)) {
 			IS_SYNCING.set(true);
 			try {
-				sharedInventories.get(inventoryId).set(slot, stack.copy());
-				// Notify the player that their inventory has been updated
+				PlayerInventory playerInventory = player.getInventory();
+				DefaultedList<ItemStack> shared = sharedInventories.get(inventoryId);
+				for (int i = 0; i < Math.min(shared.size(), playerInventory.size()); i++) {
+					shared.set(i, playerInventory.getStack(i).copy());
+				}
 				syncToAllPlayersInGroup(player, inventoryId);
 			} finally {
 				IS_SYNCING.set(false);
@@ -105,15 +106,12 @@ public class SharedInventoryManager implements ModInitializer {
 					&& otherPlayerInventoryId.equals(inventoryId)) {
 				LOGGER.info("Sending inventory update to player {}", otherPlayer.getName().getString());
 				// update the other player's inventory server-side
-
 				PlayerInventory otherPlayerInventory = otherPlayer.getInventory();
 				for (int i = 0; i < Math.min(stacksToSend.size(), otherPlayerInventory.size()); i++) {
 					otherPlayerInventory.setStack(i, stacksToSend.get(i).copy());
 				}
 				otherPlayerInventory.markDirty();
-
-				// Send the packet to the other player
-				ServerPlayNetworking.send((ServerPlayerEntity) otherPlayer, new SyncInventoryPayload(stacksToSend));
+				// Server-side inventory changes automatically sync to client
 			}
 		}
 	}

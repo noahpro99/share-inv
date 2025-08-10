@@ -16,11 +16,24 @@ public class PlayerInventoryMixin {
 	@Shadow
 	public PlayerEntity player;
 
-	@Inject(at = @At("TAIL"), method = "setStack")
-	private void onSetStack(int slot, ItemStack stack, CallbackInfo info) {
+	// Broad net for slot changes - markDirty is called for most inventory mutations
+	@Inject(at = @At("TAIL"), method = "markDirty")
+	private void onMarkDirty(CallbackInfo info) {
 		if (player.getWorld().isClient()) {
 			return;
 		}
-		SharedInventoryManager.syncInventoryChange(player, slot, stack);
+		// Sync the entire inventory after any change that marks it dirty
+		SharedInventoryManager.syncEntireInventory(player);
+	}
+
+	// Sync when items are dropped with Q (offerOrDrop handles Q drops) -
+	// offerOrDrop is void in 1.21
+	@Inject(at = @At("TAIL"), method = "offerOrDrop")
+	private void onOfferOrDrop(ItemStack stack, CallbackInfo info) {
+		if (player.getWorld().isClient()) {
+			return;
+		}
+		// Sync the entire inventory after dropping items
+		SharedInventoryManager.syncEntireInventory(player);
 	}
 }
