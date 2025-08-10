@@ -12,7 +12,7 @@
 	},
 	"license": "MIT",
 	"icon": "assets/share-inv/icon.png",
-	"environment": "server",
+	"environment": "*",
 	"entrypoints": {
 		"main": [
 			"com.example.SharedInventoryManager"
