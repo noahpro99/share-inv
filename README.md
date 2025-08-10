@@ -79,7 +79,7 @@ If you encounter any bugs or have feature requests, please [open an issue](https
 
 ## Changelog
 
-### v0.1.0
+### v0.1.1
 
 - Initial release
 - Basic shared inventory functionality

@@ -1,7 +1,7 @@
 {
 	"schemaVersion": 1,
 	"id": "share-inv",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"name": "share-inv",
 	"description": "A Fabric mod to share inventory between players",
 	"authors": [
