@@ -8,14 +8,14 @@
 		"noahpro99"
 	],
 	"contact": {
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
+		"sources": "https://github.com/noahpro99/share-inv"
 	},
 	"license": "MIT",
 	"icon": "assets/share-inv/icon.png",
 	"environment": "*",
 	"entrypoints": {
 		"main": [
-			"com.example.ExampleMod"
+			"com.example.SharedInventoryManager"
 		],
 		"client": [
 			"com.example.ExampleModClient"

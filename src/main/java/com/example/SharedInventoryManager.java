@@ -1,13 +1,17 @@
 package com.example;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
+import net.minecraft.server.command.CommandManager;
 import net.minecraft.util.collection.DefaultedList;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.mojang.brigadier.arguments.StringArgumentType;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -24,6 +28,7 @@ public class SharedInventoryManager implements ModInitializer {
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
 	public static void joinSharedInventory(PlayerEntity player, String inventoryName) {
+		LOGGER.info("Player {} is joining shared inventory: {}", player.getName().getString(), inventoryName);
 		// if there are no players so far, copy their inventory to the shared inventory
 		PlayerInventory playerInventory = player.getInventory();
 		if (!sharedInventories.containsKey(inventoryName)) {
@@ -58,6 +63,8 @@ public class SharedInventoryManager implements ModInitializer {
 	}
 
 	public static void syncInventoryChange(PlayerEntity player, int slot, ItemStack stack) {
+		LOGGER.info("Syncing inventory change for player {}: slot {}, stack {}", player.getName().getString(), slot,
+				stack);
 		String inventoryId = playerUUIDtoSharedInventoryName.get(player.getUuidAsString());
 		if (inventoryId != null && sharedInventories.containsKey(inventoryId)) {
 			sharedInventories.get(inventoryId).set(slot, stack);
@@ -67,12 +74,17 @@ public class SharedInventoryManager implements ModInitializer {
 	}
 
 	public static void syncToAllPlayersInGroup(PlayerEntity player, String inventoryId) {
+		LOGGER.info("Syncing inventory {} to all players in the group for player {}", inventoryId,
+				player.getName().getString());
 		// Notify all players in the same group about the inventory change
 		for (PlayerEntity otherPlayer : player.getWorld().getPlayers()) {
+			String otherPlayerInventoryId = playerUUIDtoSharedInventoryName.get(otherPlayer.getUuidAsString());
 			if (otherPlayer != player
-					&& playerUUIDtoSharedInventoryName.get(otherPlayer.getUuidAsString()).equals(inventoryId)) {
+					&& otherPlayerInventoryId != null
+					&& otherPlayerInventoryId.equals(inventoryId)) {
 				// Send the updated inventory to the other player
-				otherPlayer.sendInventoryUpdate(sharedInventories.get(inventoryId));
+				LOGGER.info("would have sent inventory update to {}", otherPlayer.getName().getString());
+				// otherPlayer.sendInventoryUpdate(sharedInventories.get(inventoryId));
 			}
 		}
 	}
@@ -84,5 +96,16 @@ public class SharedInventoryManager implements ModInitializer {
 		// Proceed with mild caution.
 
 		LOGGER.info("Hello Fabric world!");
+
+		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+			dispatcher.register(CommandManager.literal("joinSharedInventory")
+					.then(CommandManager.argument("inventoryName", StringArgumentType.string())
+							.executes(context -> {
+								PlayerEntity player = context.getSource().getPlayer();
+								String inventoryName = StringArgumentType.getString(context, "inventoryName");
+								joinSharedInventory(player, inventoryName);
+								return 1;
+							})));
+		});
 	}
 }
