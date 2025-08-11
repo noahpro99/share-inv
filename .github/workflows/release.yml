@@ -43,7 +43,7 @@ jobs:
           body: |
             ## Share Inventory v${{ steps.get_version.outputs.VERSION }}
 
-            A Minecraft Fabric mod that allows players to share inventories with each other in real-time.
+            A Minecraft Fabric mod that allows players to share inventories, health, and hunger with each other in real-time.
 
             ### Installation
             1. Download the jar file below
@@ -56,7 +56,8 @@ jobs:
             - Fabric API
 
             ### Usage
-            Use `/joinSharedInventory <inventoryName>` to join or create a shared inventory group.
+            - Use `/joinSharedInventory <inventoryName>` to join or create a shared inventory group
+            - Use `/leaveSharedInventory` to leave your current shared inventory group
           draft: false
           prerelease: false
 

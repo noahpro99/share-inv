@@ -1,10 +1,11 @@
-# Share Inventory
+# Share Inv
 
-A Minecraft Fabric mod that allows players to share inventories in real-time on servers.
+A Minecraft Fabric mod that allows players to share inventories, health, and hunger in real-time on servers.
 
 ## Features
 
 - Real-time inventory syncing between players in the same group
+- Real-time health and hunger syncing between players in the same group
 - Server-side only - works with vanilla clients
 - Simple command interface
 - Supports all inventory operations (picking up, dropping, crafting, etc.)
@@ -23,12 +24,18 @@ Join or create a shared inventory group:
 /joinSharedInventory <inventoryName>
 ```
 
+Leave your current shared inventory group:
+
+```
+/leaveSharedInventory
+```
+
 Examples:
 
 - `/joinSharedInventory team1`
-- `/joinSharedInventory builders`
+- `/leaveSharedInventory`
 
-The first player to join sets the shared inventory. Subsequent players receive a copy and all changes sync automatically.
+The first player to join sets the shared inventory, health, and hunger levels. Subsequent players receive a copy and all changes sync automatically.
 
 ## Requirements
 
