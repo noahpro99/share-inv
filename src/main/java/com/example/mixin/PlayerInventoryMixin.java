@@ -52,4 +52,24 @@ public class PlayerInventoryMixin {
 			SharedInventoryManager.syncEntireInventory(this.player);
 		}
 	}
+
+	// Hook into removeStack to catch item consumption (like drinking potions, using
+	// buckets, etc.)
+	@Inject(at = @At("RETURN"), method = "removeStack(II)Lnet/minecraft/item/ItemStack;")
+	private void onRemoveStack(int slot, int amount, CallbackInfoReturnable<ItemStack> cir) {
+		if (!this.player.getWorld().isClient() && !cir.getReturnValue().isEmpty()) {
+			// Sync when items are removed (consumed, used, etc.)
+			SharedInventoryManager.syncEntireInventory(this.player);
+		}
+	}
+
+	// Hook into setStack to catch direct slot changes (like bucket use, item
+	// swapping, etc.)
+	@Inject(at = @At("TAIL"), method = "setStack")
+	private void onSetStack(int slot, ItemStack stack, CallbackInfo info) {
+		if (!this.player.getWorld().isClient()) {
+			// Sync when items are directly set in slots
+			SharedInventoryManager.syncEntireInventory(this.player);
+		}
+	}
 }

@@ -30,4 +30,15 @@ public class ServerPlayerInteractionManagerMixin {
         // Sync the entire inventory after block placement
         SharedInventoryManager.syncEntireInventory(player);
     }
+
+    // Sync inventory after item usage (like water buckets, food, etc.)
+    @Inject(at = @At("RETURN"), method = "interactItem")
+    private void onInteractItem(ServerPlayerEntity player, World world, net.minecraft.item.ItemStack stack, Hand hand,
+            CallbackInfoReturnable<ActionResult> cir) {
+        if (world.isClient()) {
+            return;
+        }
+        // Sync the entire inventory after item usage
+        SharedInventoryManager.syncEntireInventory(player);
+    }
 }
