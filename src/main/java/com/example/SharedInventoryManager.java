@@ -12,6 +12,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.example.PlayerSyncData.HungerData;
+import com.example.PlayerSyncData.HealthData;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -25,51 +27,13 @@ public class SharedInventoryManager implements ModInitializer {
 	private static final Map<String, String> playerUUIDtoSharedInventoryName = new HashMap<>();
 	// Storage for shared hunger data: inventoryName -> HungerData
 	private static final Map<String, HungerData> sharedHungerData = new HashMap<>();
+	// Storage for shared health data: inventoryName -> HealthData
+	private static final Map<String, HealthData> sharedHealthData = new HashMap<>();
 	// This logger is used to write text to the console and the log file.
 	// It is considered best practice to use your mod id as the logger's name.
 	// That way, it's clear which mod wrote info, warnings, and errors.
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 	private static volatile boolean IS_SYNCING = false;
-
-	// Data class to hold hunger information
-	public static class HungerData {
-		public int foodLevel;
-		public float saturationLevel;
-		public float exhaustionLevel;
-
-		public HungerData(int foodLevel, float saturationLevel, float exhaustionLevel) {
-			this.foodLevel = foodLevel;
-			this.saturationLevel = saturationLevel;
-			this.exhaustionLevel = exhaustionLevel;
-		}
-
-		public static HungerData fromPlayer(PlayerEntity player) {
-			var hungerManager = player.getHungerManager();
-			return new HungerData(
-					hungerManager.getFoodLevel(),
-					hungerManager.getSaturationLevel(),
-					hungerManager.getExhaustion());
-		}
-
-		public void applyToPlayer(PlayerEntity player) {
-			var hungerManager = player.getHungerManager();
-			hungerManager.setFoodLevel(foodLevel);
-			hungerManager.setSaturationLevel(saturationLevel);
-			hungerManager.setExhaustion(exhaustionLevel);
-		}
-
-		public boolean isDifferentFrom(HungerData other) {
-			if (other == null)
-				return true;
-			return foodLevel != other.foodLevel ||
-					Math.abs(saturationLevel - other.saturationLevel) > 0.01f ||
-					Math.abs(exhaustionLevel - other.exhaustionLevel) > 0.01f;
-		}
-
-		public HungerData copy() {
-			return new HungerData(foodLevel, saturationLevel, exhaustionLevel);
-		}
-	}
 
 	public static void joinSharedInventory(PlayerEntity player, String inventoryName) {
 		LOGGER.info("Player {} is joining shared inventory: {}", player.getName().getString(), inventoryName);
@@ -84,8 +48,9 @@ public class SharedInventoryManager implements ModInitializer {
 					inventory.set(i, playerInventory.getStack(i).copy());
 				}
 
-				// Copy hunger data for new shared inventory
+				// Copy hunger and health data for new shared inventory
 				sharedHungerData.put(inventoryName, HungerData.fromPlayer(player));
+				sharedHealthData.put(inventoryName, HealthData.fromPlayer(player));
 			} else {
 				// if the shared inventory already exists, replace the player's inventory with
 				// the shared one
@@ -94,10 +59,15 @@ public class SharedInventoryManager implements ModInitializer {
 					playerInventory.setStack(i, inventory.get(i).copy());
 				}
 
-				// Apply shared hunger data to the player
+				// Apply shared hunger and health data to the player
 				HungerData sharedHunger = sharedHungerData.get(inventoryName);
 				if (sharedHunger != null) {
 					sharedHunger.applyToPlayer(player);
+				}
+
+				HealthData sharedHealth = sharedHealthData.get(inventoryName);
+				if (sharedHealth != null) {
+					sharedHealth.applyToPlayer(player);
 				}
 
 				player.sendAbilitiesUpdate();
@@ -129,6 +99,7 @@ public class SharedInventoryManager implements ModInitializer {
 				LOGGER.info("Removing empty shared inventory: {}", inventoryName);
 				sharedInventories.remove(inventoryName);
 				sharedHungerData.remove(inventoryName);
+				sharedHealthData.remove(inventoryName);
 			}
 		} else {
 			LOGGER.warn("Player {} is not in any shared inventory", player.getName().getString());
@@ -154,6 +125,32 @@ public class SharedInventoryManager implements ModInitializer {
 
 					// Sync to all other players in the group
 					syncHungerToAllPlayersInGroup(player, inventoryId);
+				} finally {
+					IS_SYNCING = false;
+				}
+			}
+		}
+	}
+
+	// Sync health data for a player to the shared health and all group members
+	public static void syncHealth(PlayerEntity player) {
+		if (player.getWorld().isClient() || IS_SYNCING) {
+			return;
+		}
+		String inventoryId = playerUUIDtoSharedInventoryName.get(player.getUuidAsString());
+		if (inventoryId != null && sharedHealthData.containsKey(inventoryId)) {
+			HealthData currentHealth = HealthData.fromPlayer(player);
+			HealthData sharedHealth = sharedHealthData.get(inventoryId);
+
+			// Only sync if health values have actually changed
+			if (currentHealth.isDifferentFrom(sharedHealth)) {
+				IS_SYNCING = true;
+				try {
+					// Update shared health data with this player's current state
+					sharedHealthData.put(inventoryId, currentHealth.copy());
+
+					// Sync to all other players in the group
+					syncHealthToAllPlayersInGroup(player, inventoryId);
 				} finally {
 					IS_SYNCING = false;
 				}
@@ -230,6 +227,28 @@ public class SharedInventoryManager implements ModInitializer {
 				LOGGER.debug("Sending hunger update to player {}", otherPlayer.getName().getString());
 				// update the other player's hunger server-side
 				sharedHunger.applyToPlayer(otherPlayer);
+			}
+		}
+	}
+
+	public static void syncHealthToAllPlayersInGroup(PlayerEntity player, String inventoryId) {
+		LOGGER.debug("Syncing health {} to all players in the group for player {}", inventoryId,
+				player.getName().getString());
+		HealthData sharedHealth = sharedHealthData.get(inventoryId);
+
+		if (sharedHealth == null) {
+			LOGGER.warn("Shared health data {} not found for player {}", inventoryId, player.getName().getString());
+			return;
+		}
+
+		for (PlayerEntity otherPlayer : player.getWorld().getPlayers()) {
+			String otherPlayerInventoryId = playerUUIDtoSharedInventoryName.get(otherPlayer.getUuidAsString());
+			if (otherPlayer != player
+					&& otherPlayerInventoryId != null
+					&& otherPlayerInventoryId.equals(inventoryId)) {
+				LOGGER.debug("Sending health update to player {}", otherPlayer.getName().getString());
+				// update the other player's health server-side
+				sharedHealth.applyToPlayer(otherPlayer);
 			}
 		}
 	}
