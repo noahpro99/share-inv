@@ -63,6 +63,25 @@ public class SharedInventoryManager implements ModInitializer {
 		}
 	}
 
+	public static void leaveSharedInventory(PlayerEntity player) {
+		String playerUUID = player.getUuidAsString();
+		String inventoryName = playerUUIDtoSharedInventoryName.get(playerUUID);
+
+		if (inventoryName != null) {
+			LOGGER.info("Player {} is leaving shared inventory: {}", player.getName().getString(), inventoryName);
+			playerUUIDtoSharedInventoryName.remove(playerUUID);
+
+			// Check if this was the last player in the shared inventory
+			boolean hasOtherPlayers = playerUUIDtoSharedInventoryName.containsValue(inventoryName);
+			if (!hasOtherPlayers) {
+				LOGGER.info("Removing empty shared inventory: {}", inventoryName);
+				sharedInventories.remove(inventoryName);
+			}
+		} else {
+			LOGGER.warn("Player {} is not in any shared inventory", player.getName().getString());
+		}
+	}
+
 	// Sync the entire inventory for a player to the shared inventory and all group
 	// members
 	public static void syncEntireInventory(PlayerEntity player) {
@@ -86,7 +105,7 @@ public class SharedInventoryManager implements ModInitializer {
 	}
 
 	public static void syncToAllPlayersInGroup(PlayerEntity player, String inventoryId) {
-		LOGGER.info("Syncing inventory {} to all players in the group for player {}", inventoryId,
+		LOGGER.debug("Syncing inventory {} to all players in the group for player {}", inventoryId,
 				player.getName().getString());
 		DefaultedList<ItemStack> sharedInventory = sharedInventories.get(inventoryId);
 
@@ -101,7 +120,7 @@ public class SharedInventoryManager implements ModInitializer {
 			if (otherPlayer != player
 					&& otherPlayerInventoryId != null
 					&& otherPlayerInventoryId.equals(inventoryId)) {
-				LOGGER.info("Sending inventory update to player {}", otherPlayer.getName().getString());
+				LOGGER.debug("Sending inventory update to player {}", otherPlayer.getName().getString());
 				// update the other player's inventory server-side
 				PlayerInventory otherPlayerInventory = otherPlayer.getInventory();
 				for (int i = 0; i < Math.min(stacksToSend.size(), otherPlayerInventory.size()); i++) {
@@ -131,6 +150,13 @@ public class SharedInventoryManager implements ModInitializer {
 								joinSharedInventory(player, inventoryName);
 								return 1;
 							})));
+
+			dispatcher.register(CommandManager.literal("leaveSharedInventory")
+					.executes(context -> {
+						PlayerEntity player = context.getSource().getPlayer();
+						leaveSharedInventory(player);
+						return 1;
+					}));
 		});
 	}
 }
