@@ -17,7 +17,9 @@ import com.example.PlayerSyncData.HealthData;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 public class SharedInventoryManager implements ModInitializer {
 
@@ -137,10 +139,22 @@ public class SharedInventoryManager implements ModInitializer {
 		if (player.getWorld().isClient() || IS_SYNCING) {
 			return;
 		}
+
 		String inventoryId = playerUUIDtoSharedInventoryName.get(player.getUuidAsString());
 		if (inventoryId != null && sharedHealthData.containsKey(inventoryId)) {
 			HealthData currentHealth = HealthData.fromPlayer(player);
 			HealthData sharedHealth = sharedHealthData.get(inventoryId);
+
+			// Allow death to sync initially, but prevent subsequent syncing during death
+			// phase
+			boolean isPlayerDying = currentHealth.health <= 0;
+			boolean groupHasDead = hasDeadPlayersInGroup(inventoryId);
+
+			// If player is dying and no one has died yet, allow the death sync
+			// Otherwise, if the group already has dead players, block health sync
+			if (groupHasDead && !isPlayerDying) {
+				return; // Block health sync during death phase, except for the initial death
+			}
 
 			// Only sync if health values have actually changed
 			if (currentHealth.isDifferentFrom(sharedHealth)) {
@@ -149,7 +163,7 @@ public class SharedInventoryManager implements ModInitializer {
 					// Update shared health data with this player's current state
 					sharedHealthData.put(inventoryId, currentHealth.copy());
 
-					// Sync to all other players in the group
+					// Sync to all other players in the group (including death)
 					syncHealthToAllPlayersInGroup(player, inventoryId);
 				} finally {
 					IS_SYNCING = false;
@@ -250,6 +264,102 @@ public class SharedInventoryManager implements ModInitializer {
 				// update the other player's health server-side
 				sharedHealth.applyToPlayer(otherPlayer);
 			}
+		}
+	}
+
+	// Helper method to get a player's inventory ID (used by death/respawn handling)
+	public static String getPlayerInventoryId(PlayerEntity player) {
+		return playerUUIDtoSharedInventoryName.get(player.getUuidAsString());
+	}
+
+	// Track which groups have already had someone die (to prevent multiple item
+	// drops)
+	private static final Set<String> groupsWithDeath = new HashSet<>();
+
+	// Helper method to determine if this player should drop items on death
+	// Only the first player to die in a shared group should drop items
+	public static boolean shouldDropItemsOnDeath(PlayerEntity player, String inventoryId) {
+		if (inventoryId == null) {
+			return true; // Not in a shared group, drop items normally
+		}
+
+		// Check if someone in this group has already died
+		if (groupsWithDeath.contains(inventoryId)) {
+			return false; // Someone already died and dropped items
+		}
+
+		// This is the first death in the group, mark it and allow item drop
+		groupsWithDeath.add(inventoryId);
+		return true;
+	}
+
+	// Clear death tracking when all players in a group respawn
+	public static void clearDeathTracking(String inventoryId) {
+		groupsWithDeath.remove(inventoryId);
+	}
+
+	// Check if any player in a shared inventory group is currently dead
+	public static boolean hasDeadPlayersInGroup(String inventoryId) {
+		return groupsWithDeath.contains(inventoryId);
+	}
+
+	// Clear inventories for all players in a group except the dying player
+	// This prevents item duplication when someone dies
+	public static void clearInventoriesForAllPlayersInGroup(PlayerEntity dyingPlayer, String inventoryId) {
+		LOGGER.info("Clearing inventories for all players in group {} except dying player {}",
+				inventoryId, dyingPlayer.getName().getString());
+
+		for (PlayerEntity otherPlayer : dyingPlayer.getWorld().getPlayers()) {
+			String otherPlayerInventoryId = playerUUIDtoSharedInventoryName.get(otherPlayer.getUuidAsString());
+			if (otherPlayer != dyingPlayer
+					&& otherPlayerInventoryId != null
+					&& otherPlayerInventoryId.equals(inventoryId)
+					&& !otherPlayer.isDead()) { // Only clear living players' inventories
+				LOGGER.debug("Clearing inventory for player {}", otherPlayer.getName().getString());
+				otherPlayer.getInventory().clear();
+			}
+		}
+	}
+
+	// Clear the shared inventory when the group dies (items are now on the ground)
+	public static void clearSharedInventory(String inventoryId) {
+		if (inventoryId != null && sharedInventories.containsKey(inventoryId)) {
+			LOGGER.info("Clearing shared inventory {} due to group death", inventoryId);
+			DefaultedList<ItemStack> sharedInventory = sharedInventories.get(inventoryId);
+			for (int i = 0; i < sharedInventory.size(); i++) {
+				sharedInventory.set(i, ItemStack.EMPTY);
+			}
+		}
+	}
+
+	// Helper method to restore shared inventory to a player (used after respawn)
+	public static void restoreSharedInventoryToPlayer(PlayerEntity player, String inventoryId) {
+		if (inventoryId == null || !sharedInventories.containsKey(inventoryId)) {
+			return;
+		}
+
+		IS_SYNCING = true;
+		try {
+			// Don't restore inventory items - they should come from picking up drops
+			// Only restore hunger and health
+
+			// Restore hunger
+			HungerData sharedHunger = sharedHungerData.get(inventoryId);
+			if (sharedHunger != null) {
+				sharedHunger.applyToPlayer(player);
+			}
+
+			// Set health to full for respawned player and update shared health
+			// This ensures that respawn gives full health to everyone
+			player.setHealth(player.getMaxHealth());
+			HealthData newHealthData = HealthData.fromPlayer(player);
+			sharedHealthData.put(inventoryId, newHealthData);
+
+			player.sendAbilitiesUpdate();
+			LOGGER.info("Restored hunger/health to respawned player {} (inventory should come from drops)",
+					player.getName().getString());
+		} finally {
+			IS_SYNCING = false;
 		}
 	}
 
